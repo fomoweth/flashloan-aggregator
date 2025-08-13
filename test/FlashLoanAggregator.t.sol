@@ -4,7 +4,7 @@ pragma solidity ^0.8.30;
 import {Test} from "forge-std/Test.sol";
 import {IERC20} from "@openzeppelin/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/token/ERC20/utils/SafeERC20.sol";
-import {FlashLoanAggregator} from "src/FlashLoanAggregator.sol";
+import {FlashLoanAggregator, IFlashLoanAggregator} from "src/FlashLoanAggregator.sol";
 import {MockExecutor} from "test/mocks/MockExecutor.sol";
 import {MockFlashLender} from "test/mocks/MockFlashLender.sol";
 
@@ -33,117 +33,153 @@ contract FlashLoanAggregatorTest is Test {
 	uint256 internal constant UNISWAP_V3_FL_TYPE = 6;
 
 	FlashLoanAggregator internal aggregator;
-	MockExecutor internal executor;
-	MockFlashLender internal lender;
+	address internal executor;
+	address internal lender;
 
 	function setUp() public virtual {
 		vm.createSelectFork("ethereum", 23109679);
 
 		aggregator = new FlashLoanAggregator();
-		executor = new MockExecutor(address(aggregator));
-		lender = new MockFlashLender();
+		executor = address(new MockExecutor(address(aggregator)));
+		lender = address(new MockFlashLender());
 
-		deal(WETH, address(lender), 10000 ether);
+		deal(WETH, lender, 10000 ether);
 		deal(WETH, address(this), 10 ether);
 		deal(DAI, address(this), 5000 ether);
 
-		IERC20(WETH).forceApprove(address(executor), type(uint256).max);
-		IERC20(DAI).forceApprove(address(executor), type(uint256).max);
+		IERC20(WETH).forceApprove(executor, type(uint256).max);
+		IERC20(DAI).forceApprove(executor, type(uint256).max);
 	}
 
 	function test_initiate_flashLoan_erc3156() public {
-		bytes memory call = abi.encodeCall(IERC20.transferFrom, (address(this), address(executor), 10 ether));
-		bytes memory data = abi.encodeCall(MockExecutor.callback, (abi.encode(WETH, call)));
+		bytes memory call = abi.encodeCall(IERC20.transferFrom, (address(this), executor, 10 ether));
+		bytes memory data = abi.encodeCall(MockExecutor.execute, (abi.encode(WETH, call)));
 
-		executor.execute(ERC3156_FL_TYPE, address(lender), WETH, 20 ether, data);
-		assertEq(IERC20(WETH).balanceOf(address(executor)), 10 ether);
+		vm.expectEmit(true, true, true, false);
+		emit MockExecutor.Executed(lender, WETH, data);
+
+		IFlashLoanAggregator(executor).initiate(ERC3156_FL_TYPE, lender, WETH, 20 ether, data);
+		assertEq(IERC20(WETH).balanceOf(executor), 10 ether);
 	}
 
 	function test_initiate_flashLoan_maker() public {
-		bytes memory call = abi.encodeCall(IERC20.transferFrom, (address(this), address(executor), 5000 ether));
-		bytes memory data = abi.encodeCall(MockExecutor.callback, (abi.encode(DAI, call)));
+		bytes memory call = abi.encodeCall(IERC20.transferFrom, (address(this), executor, 5000 ether));
+		bytes memory data = abi.encodeCall(MockExecutor.execute, (abi.encode(DAI, call)));
 
-		executor.execute(ERC3156_FL_TYPE, MAKER, DAI, 50000 ether, data);
-		assertEq(IERC20(DAI).balanceOf(address(executor)), 5000 ether);
+		vm.expectEmit(true, true, true, false);
+		emit MockExecutor.Executed(MAKER, DAI, data);
+
+		IFlashLoanAggregator(executor).initiate(ERC3156_FL_TYPE, MAKER, DAI, 50000 ether, data);
+		assertEq(IERC20(DAI).balanceOf(executor), 5000 ether);
 	}
 
 	function test_initiate_flashLoanSimple() public {
-		bytes memory call = abi.encodeCall(IERC20.transferFrom, (address(this), address(executor), 10 ether));
-		bytes memory data = abi.encodeCall(MockExecutor.callback, (abi.encode(WETH, call)));
+		bytes memory call = abi.encodeCall(IERC20.transferFrom, (address(this), executor, 10 ether));
+		bytes memory data = abi.encodeCall(MockExecutor.execute, (abi.encode(WETH, call)));
 
-		executor.execute(AAVE_FL_SIMPLE_TYPE, AAVE_V3, WETH, 20 ether, data);
-		assertGt(IERC20(WETH).balanceOf(address(executor)), 0);
+		vm.expectEmit(true, true, true, false);
+		emit MockExecutor.Executed(AAVE_V3, WETH, data);
+
+		IFlashLoanAggregator(executor).initiate(AAVE_FL_SIMPLE_TYPE, AAVE_V3, WETH, 20 ether, data);
+		assertGt(IERC20(WETH).balanceOf(executor), 0);
 	}
 
 	function test_initiate_flashLoanSimple_spark() public {
-		bytes memory call = abi.encodeCall(IERC20.transferFrom, (address(this), address(executor), 10 ether));
-		bytes memory data = abi.encodeCall(MockExecutor.callback, (abi.encode(WETH, call)));
+		bytes memory call = abi.encodeCall(IERC20.transferFrom, (address(this), executor, 10 ether));
+		bytes memory data = abi.encodeCall(MockExecutor.execute, (abi.encode(WETH, call)));
 
-		executor.execute(AAVE_FL_SIMPLE_TYPE, SPARK, WETH, 20 ether, data);
-		assertGt(IERC20(WETH).balanceOf(address(executor)), 0);
+		vm.expectEmit(true, true, true, false);
+		emit MockExecutor.Executed(SPARK, WETH, data);
+
+		IFlashLoanAggregator(executor).initiate(AAVE_FL_SIMPLE_TYPE, SPARK, WETH, 20 ether, data);
+		assertGt(IERC20(WETH).balanceOf(executor), 0);
 	}
 
 	function test_initiate_flashLoan_aave_v3() public {
-		bytes memory call = abi.encodeCall(IERC20.transferFrom, (address(this), address(executor), 10 ether));
-		bytes memory data = abi.encodeCall(MockExecutor.callback, (abi.encode(WETH, call)));
+		bytes memory call = abi.encodeCall(IERC20.transferFrom, (address(this), executor, 10 ether));
+		bytes memory data = abi.encodeCall(MockExecutor.execute, (abi.encode(WETH, call)));
 
-		executor.execute(AAVE_FL_TYPE, AAVE_V3, WETH, 20 ether, data);
-		assertGt(IERC20(WETH).balanceOf(address(executor)), 0);
+		vm.expectEmit(true, true, true, false);
+		emit MockExecutor.Executed(AAVE_V3, WETH, data);
+
+		IFlashLoanAggregator(executor).initiate(AAVE_FL_TYPE, AAVE_V3, WETH, 20 ether, data);
+		assertGt(IERC20(WETH).balanceOf(executor), 0);
 	}
 
 	function test_initiate_flashLoan_aave_v2() public {
-		bytes memory call = abi.encodeCall(IERC20.transferFrom, (address(this), address(executor), 10 ether));
-		bytes memory data = abi.encodeCall(MockExecutor.callback, (abi.encode(WETH, call)));
+		bytes memory call = abi.encodeCall(IERC20.transferFrom, (address(this), executor, 10 ether));
+		bytes memory data = abi.encodeCall(MockExecutor.execute, (abi.encode(WETH, call)));
 
-		executor.execute(AAVE_FL_TYPE, AAVE_V2, WETH, 20 ether, data);
-		assertGt(IERC20(WETH).balanceOf(address(executor)), 0);
+		vm.expectEmit(true, true, true, false);
+		emit MockExecutor.Executed(AAVE_V2, WETH, data);
+
+		IFlashLoanAggregator(executor).initiate(AAVE_FL_TYPE, AAVE_V2, WETH, 20 ether, data);
+		assertGt(IERC20(WETH).balanceOf(executor), 0);
 	}
 
 	function test_initiate_flashLoan_spark() public {
-		bytes memory call = abi.encodeCall(IERC20.transferFrom, (address(this), address(executor), 10 ether));
-		bytes memory data = abi.encodeCall(MockExecutor.callback, (abi.encode(WETH, call)));
+		bytes memory call = abi.encodeCall(IERC20.transferFrom, (address(this), executor, 10 ether));
+		bytes memory data = abi.encodeCall(MockExecutor.execute, (abi.encode(WETH, call)));
 
-		executor.execute(AAVE_FL_TYPE, SPARK, WETH, 20 ether, data);
-		assertGt(IERC20(WETH).balanceOf(address(executor)), 0);
+		vm.expectEmit(true, true, true, false);
+		emit MockExecutor.Executed(SPARK, WETH, data);
+
+		IFlashLoanAggregator(executor).initiate(AAVE_FL_TYPE, SPARK, WETH, 20 ether, data);
+		assertGt(IERC20(WETH).balanceOf(executor), 0);
 	}
 
 	function test_initiate_flashLoan_balancer_v2() public {
-		bytes memory call = abi.encodeCall(IERC20.transferFrom, (address(this), address(executor), 10 ether));
-		bytes memory data = abi.encodeCall(MockExecutor.callback, (abi.encode(WETH, call)));
+		bytes memory call = abi.encodeCall(IERC20.transferFrom, (address(this), executor, 10 ether));
+		bytes memory data = abi.encodeCall(MockExecutor.execute, (abi.encode(WETH, call)));
 
-		executor.execute(BALANCER_V2_FL_TYPE, BALANCER_V2, WETH, 20 ether, data);
-		assertEq(IERC20(WETH).balanceOf(address(executor)), 10 ether);
+		vm.expectEmit(true, true, true, false);
+		emit MockExecutor.Executed(BALANCER_V2, WETH, data);
+
+		IFlashLoanAggregator(executor).initiate(BALANCER_V2_FL_TYPE, BALANCER_V2, WETH, 20 ether, data);
+		assertEq(IERC20(WETH).balanceOf(executor), 10 ether);
 	}
 
 	function test_initiate_flashLoan_balancer_v3() public {
-		bytes memory call = abi.encodeCall(IERC20.transferFrom, (address(this), address(executor), 10 ether));
-		bytes memory data = abi.encodeCall(MockExecutor.callback, (abi.encode(WETH, call)));
+		bytes memory call = abi.encodeCall(IERC20.transferFrom, (address(this), executor, 10 ether));
+		bytes memory data = abi.encodeCall(MockExecutor.execute, (abi.encode(WETH, call)));
 
-		executor.execute(BALANCER_V3_FL_TYPE, BALANCER_V3, WETH, 20 ether, data);
-		assertEq(IERC20(WETH).balanceOf(address(executor)), 10 ether);
+		vm.expectEmit(true, true, true, false);
+		emit MockExecutor.Executed(BALANCER_V3, WETH, data);
+
+		IFlashLoanAggregator(executor).initiate(BALANCER_V3_FL_TYPE, BALANCER_V3, WETH, 20 ether, data);
+		assertEq(IERC20(WETH).balanceOf(executor), 10 ether);
 	}
 
 	function test_initiate_flashLoan_morpho() public {
-		bytes memory call = abi.encodeCall(IERC20.transferFrom, (address(this), address(executor), 10 ether));
-		bytes memory data = abi.encodeCall(MockExecutor.callback, (abi.encode(WETH, call)));
+		bytes memory call = abi.encodeCall(IERC20.transferFrom, (address(this), executor, 10 ether));
+		bytes memory data = abi.encodeCall(MockExecutor.execute, (abi.encode(WETH, call)));
 
-		executor.execute(MORPHO_FL_TYPE, MORPHO, WETH, 20 ether, data);
-		assertEq(IERC20(WETH).balanceOf(address(executor)), 10 ether);
+		vm.expectEmit(true, true, true, false);
+		emit MockExecutor.Executed(MORPHO, WETH, data);
+
+		IFlashLoanAggregator(executor).initiate(MORPHO_FL_TYPE, MORPHO, WETH, 20 ether, data);
+		assertEq(IERC20(WETH).balanceOf(executor), 10 ether);
 	}
 
 	function test_initiate_flash_uniswap() public {
-		bytes memory call = abi.encodeCall(IERC20.transferFrom, (address(this), address(executor), 10 ether));
-		bytes memory data = abi.encodeCall(MockExecutor.callback, (abi.encode(WETH, call)));
+		bytes memory call = abi.encodeCall(IERC20.transferFrom, (address(this), executor, 10 ether));
+		bytes memory data = abi.encodeCall(MockExecutor.execute, (abi.encode(WETH, call)));
 
-		executor.execute(UNISWAP_V3_FL_TYPE, UNI_V3_USDC_WETH, WETH, 20 ether, data);
-		assertGt(IERC20(WETH).balanceOf(address(executor)), 0);
+		vm.expectEmit(true, true, true, false);
+		emit MockExecutor.Executed(UNI_V3_USDC_WETH, WETH, data);
+
+		IFlashLoanAggregator(executor).initiate(UNISWAP_V3_FL_TYPE, UNI_V3_USDC_WETH, WETH, 20 ether, data);
+		assertGt(IERC20(WETH).balanceOf(executor), 0);
 	}
 
 	function test_initiate_flash_sushi() public {
-		bytes memory call = abi.encodeCall(IERC20.transferFrom, (address(this), address(executor), 10 ether));
-		bytes memory data = abi.encodeCall(MockExecutor.callback, (abi.encode(WETH, call)));
+		bytes memory call = abi.encodeCall(IERC20.transferFrom, (address(this), executor, 10 ether));
+		bytes memory data = abi.encodeCall(MockExecutor.execute, (abi.encode(WETH, call)));
 
-		executor.execute(UNISWAP_V3_FL_TYPE, SUSHI_V3_SUSHI_WETH, WETH, 20 ether, data);
-		assertGt(IERC20(WETH).balanceOf(address(executor)), 0);
+		vm.expectEmit(true, true, true, false);
+		emit MockExecutor.Executed(SUSHI_V3_SUSHI_WETH, WETH, data);
+
+		IFlashLoanAggregator(executor).initiate(UNISWAP_V3_FL_TYPE, SUSHI_V3_SUSHI_WETH, WETH, 20 ether, data);
+		assertGt(IERC20(WETH).balanceOf(executor), 0);
 	}
 }

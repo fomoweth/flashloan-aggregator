@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.30;
 
+import {console2 as console} from "forge-std/console2.sol";
 import {IFlashLoanAggregator} from "src/interfaces/IFlashLoanAggregator.sol";
 
 contract MockExecutor {
@@ -12,20 +13,7 @@ contract MockExecutor {
 		aggregator = _aggregator;
 	}
 
-	function execute(
-		uint256 protocol,
-		address provider,
-		address token,
-		uint256 amount,
-		bytes calldata data
-	) external payable {
-		(bool success, ) = aggregator.delegatecall(
-			abi.encodeCall(IFlashLoanAggregator.initiate, (protocol, provider, token, amount, data))
-		);
-		require(success);
-	}
-
-	function callback(bytes memory data) external payable {
+	function execute(bytes memory data) external payable {
 		address token;
 		(token, data) = abi.decode(data, (address, bytes));
 		(bool success, ) = token.call(data);
